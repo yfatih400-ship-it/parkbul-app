@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="tr" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ParkBul 🚗 - İstanbul Canlı Park Yeri ve AI Bulucu</title>
+    
+    <!-- PWA & Mobile Web App Meta -->
+    <meta name="theme-color" content="#0f172a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 50: '#f0f9ff', 500: '#0ea5e9', 600: '#0284c7', 900: '#0c4a6e' }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- FontAwesome & Lucide Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        #map { height: calc(100vh - 65px); width: 100%; z-index: 1; }
+        .glass { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); }
+        .glass-light { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(0,0,0,0.05); }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans antialiased overflow-hidden">
+
+    <!-- Header -->
+    <header class="h-[65px] bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 flex items-center justify-between z-50 relative">
+        <div class="flex items-center space-x-3">
+            <div class="bg-gradient-to-tr from-sky-500 to-indigo-600 text-white p-2.5 rounded-xl shadow-lg shadow-sky-500/20">
+                <i class="fa-solid fa-square-parking text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-sky-400 to-indigo-300 bg-clip-text text-transparent">ParkBul</h1>
+                <p class="text-xs text-slate-400 hidden sm:block">İstanbul Canlı Otopark & AI Analiz</p>
+            </div>
+        </div>
+
+        <!-- Arama Barı -->
+        <div class="flex-1 max-w-md mx-4 hidden md:block">
+            <div class="relative">
+                <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-400"></i>
+                <input type="text" id="searchInput" placeholder="Kadıköy, Beşiktaş, İSPARK veya Sokak ara..." 
+                       class="w-full bg-slate-800/80 border border-slate-700/80 rounded-xl pl-10 pr-10 py-2 text-sm focus:outline-none focus:border-sky-500 text-slate-200 placeholder-slate-400 transition">
+                <button onclick="startVoiceAssistant()" title="Sesli Asistan" class="absolute right-3 top-2.5 text-slate-400 hover:text-sky-400">
+                    <i class="fa-solid fa-microphone"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Sağ Aksiyonlar -->
+        <div class="flex items-center space-x-2">
+            <button onclick="toggleCarPlay()" class="bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 border border-indigo-500/30">
+                <i class="fa-solid fa-car"></i> <span class="hidden lg:inline">Sürüş (CarPlay)</span>
+            </button>
+            <button onclick="openModal('garageModal')" class="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 border border-emerald-500/30">
+                <i class="fa-solid fa-house-circle-check"></i> <span class="hidden lg:inline">ParkEti (Kirala)</span>
+            </button>
+            <button onclick="openModal('walletModal')" class="bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 p-2.5 rounded-xl text-xs font-semibold border border-amber-500/30" title="Cüzdan & Plaka">
+                <i class="fa-solid fa-wallet"></i>
+            </button>
+            <button onclick="locateUser()" class="bg-sky-500 hover:bg-sky-600 text-white p-2.5 rounded-xl transition shadow-lg shadow-sky-500/20" title="Konumumu Bul">
+                <i class="fa-solid fa-location-crosshairs"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Ana Yapı: Sol Panel + Harita -->
+    <div class="flex relative h-[calc(100vh-65px)]">
+        
+        <!-- Sol Kontrol Paneli -->
+        <aside class="w-full md:w-[400px] bg-slate-900/95 border-r border-slate-800 flex flex-col z-20 absolute md:relative h-full transition-transform duration-300 transform -translate-x-full md:translate-x-0" id="sidebar">
+            
+            <!-- Filtreleme Butonları -->
+            <div class="p-4 border-b border-slate-800 space-y-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Filtrele & Ara</span>
+                    <button onclick="toggleSatelliteOverlay()" class="text-xs text-sky-400 hover:underline flex items-center gap-1">
+                        <i class="fa-solid fa-satellite"></i> Uydu AI Modu
+                    </button>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button onclick="filterType('all')" class="filter-btn active bg-sky-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium">Tümü</button>
+                    <button onclick="filterType('ispark')" class="filter-btn bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-700">İSPARK</button>
+                    <button onclick="filterType('street')" class="filter-btn bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-700">Sokak/Cadde</button>
+                    <button onclick="filterType('ev')" class="filter-btn bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-700">⚡ EV Şarj</button>
+                </div>
+            </div>
+
+            <!-- Arabam Nerede Widget -->
+            <div id="myCarWidget" class="mx-4 my-3 p-3 bg-slate-800/60 border border-slate-700 rounded-xl text-xs space-y-2 hidden">
+                <div class="flex items-center justify-between font-semibold text-slate-200">
+                    <span><i class="fa-solid fa-car-side text-sky-400 mr-1.5"></i> Park Edilen Araç</span>
+                    <button onclick="clearMyCar()" class="text-slate-500 hover:text-red-400"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="flex justify-between text-slate-400">
+                    <span id="carLocationName">Kadıköy İSPARK</span>
+                    <span id="carParkTimer" class="font-mono text-amber-400">00:15:20</span>
+                </div>
+                <div class="flex gap-2 pt-1">
+                    <button onclick="openARMode()" class="flex-1 bg-sky-600/30 text-sky-300 py-1.5 rounded-lg border border-sky-500/30 text-center font-medium">
+                        <i class="fa-solid fa-camera-rotate mr-1"></i> AR ile Bul
+                    </button>
+                    <button onclick="navigateMyCar()" class="flex-1 bg-emerald-600/30 text-emerald-300 py-1.5 rounded-lg border border-emerald-500/30 text-center font-medium">
+                        <i class="fa-solid fa-route mr-1"></i> Yol Tarifi
+                    </button>
+                </div>
+            </div>
+
+            <!-- Otopark Listesi -->
+            <div class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3" id="parkingList">
+                <!-- JavaScript ile Dinamik Doldurulur -->
+            </div>
+
+            <!-- Alt Aksiyon: Sokakta Yer Bildir -->
+            <div class="p-4 border-t border-slate-800 bg-slate-900/80">
+                <button onclick="openModal('streetReportModal')" class="w-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white py-2.5 rounded-xl font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20">
+                    <i class="fa-solid fa-plus-circle text-base"></i> Sokakta Boş Yeri Paylaş (+10 Puan)
+                </button>
+            </div>
+        </aside>
+
+        <!-- Leaflet Harita Alanı -->
+        <main class="flex-1 relative">
+            <div id="map"></div>
+
+            <!-- Harita Üstü Yüzen Butonlar -->
+            <div class="absolute bottom-6 right-6 z-[400] flex flex-col gap-2">
+                <button onclick="openModal('aiCameraModal')" class="bg-slate-900/90 text-slate-200 border border-slate-700 p-3 rounded-2xl shadow-2xl hover:bg-slate-800 flex items-center gap-2 text-xs font-semibold">
+                    <i class="fa-solid fa-eye text-sky-400 text-base"></i> Kamera AI Analiz
+                </button>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modallar -->
+    <!-- 1. Sokak Bildirim Modalı -->
+    <div id="streetReportModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-[1000] hidden flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4">
+            <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                <h3 class="font-bold text-slate-100 flex items-center gap-2"><i class="fa-solid fa-road text-emerald-400"></i> Sokak Boş Park Yeri Bildir</h3>
+                <button onclick="closeModal('streetReportModal')" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <p class="text-xs text-slate-400">Bulunduğunuz caddede boşalan yeri paylaşarak diğer sürücülere yardımcı olun ve ParkPuan kazanın.</p>
+            <div class="space-y-3 text-xs">
+                <div>
+                    <label class="block text-slate-300 font-medium mb-1">Sokak / Cadde Adı</label>
+                    <input type="text" id="reportStreetName" placeholder="Örn: Moda Caddesi No:12 Önü" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-slate-300 font-medium mb-1">Tahmini Boş Araç Kapasitesi</label>
+                    <select id="reportCapacity" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-slate-200 focus:outline-none">
+                        <option value="1">1 Araçlık Yer</option>
+                        <option value="2-3">2-3 Araçlık Alan</option>
+                        <option value="4+">Geniş Boş Alan (4+)</option>
+                    </select>
+                </div>
+            </div>
+            <button onclick="submitStreetReport()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-2.5 rounded-xl text-xs">Bildirimi Gönder</button>
+        </div>
+    </div>
+
+    <!-- 2. CarPlay HUD Sürüş Modu Overlay -->
+    <div id="carPlayOverlay" class="fixed inset-0 bg-black z-[2000] hidden flex flex-col p-6">
+        <div class="flex justify-between items-center border-b border-slate-800 pb-4">
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-car-side text-2xl text-sky-400"></i>
+                <span class="font-bold text-lg text-slate-100">Sürüş Modu (HUD)</span>
+            </div>
+            <button onclick="toggleCarPlay()" class="bg-red-500/20 text-red-400 px-4 py-2 rounded-xl text-xs font-bold border border-red-500/30">Çıkış Yap</button>
+        </div>
+        <div class="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 my-6">
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col justify-between">
+                <div>
+                    <span class="text-xs text-slate-400 uppercase tracking-widest font-bold">En Yakın Müsait Otopark</span>
+                    <h2 class="text-3xl font-extrabold text-slate-100 mt-2">Kadıköy İSPARK Katlı</h2>
+                    <p class="text-emerald-400 text-lg font-semibold mt-1">42 Boş Yer • 350m mesafe</p>
+                </div>
+                <button onclick="alert('Navigasyon Başlatıldı!')" class="w-full bg-sky-500 hover:bg-sky-600 text-white py-5 rounded-2xl text-xl font-bold flex items-center justify-center gap-3">
+                    <i class="fa-solid fa-location-arrow"></i> BAŞLAT (350m)
+                </button>
+            </div>
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col justify-between">
+                <div>
+                    <span class="text-xs text-slate-400 uppercase tracking-widest font-bold">Alternatif Sokak Parkı</span>
+                    <h2 class="text-3xl font-extrabold text-slate-100 mt-2">Moda Caddesi Yol Kenarı</h2>
+                    <p class="text-amber-400 text-lg font-semibold mt-1">Sınırlı Yer • 550m mesafe</p>
+                </div>
+                <button onclick="alert('Navigasyon Başlatıldı!')" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 py-5 rounded-2xl text-xl font-bold flex items-center justify-center gap-3 border border-slate-700">
+                    <i class="fa-solid fa-route"></i> ALTERNATİFE GİT
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Ana Kod Yapısı -->
+    <script>
+        // Otopark Mock Verileri
+        const parkingData = [
+            { id: 1, name: "Kadıköy İSPARK Katlı", type: "ispark", lat: 40.9901, lng: 29.0291, capacity: 250, empty: 42, price: 50, ev: true },
+            { id: 2, name: "Beşiktaş Meydan Otoparkı", type: "ispark", lat: 41.0422, lng: 29.0067, capacity: 180, empty: 8, price: 60, ev: false },
+            { id: 3, name: "Moda Caddesi Yol Kenarı", type: "street", lat: 40.9845, lng: 29.0255, capacity: 30, empty: 5, price: 0, ev: false },
+            { id: 4, name: "Nişantaşı City's Otoparkı", type: "private", lat: 41.0485, lng: 28.9942, capacity: 400, empty: 120, price: 100, ev: true }
+        ];
+
+        let map, markers = [];
+
+        // Haritayı Başlat
+        function initMap() {
+            map = L.map('map').setView([41.0082, 28.9784], 12);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap'
+            }).addTo(map);
+
+            renderMarkers(parkingData);
+            renderStreetPolylines();
+            renderList(parkingData);
+        }
+
+        // Markerları Haritaya Ekle
+        function renderMarkers(data) {
+            markers.forEach(m => map.removeLayer(m));
+            markers = [];
+
+            data.forEach(item => {
+                const color = item.empty > 20 ? '#10b981' : (item.empty > 0 ? '#f59e0b' : '#ef4444');
+                const marker = L.circleMarker([item.lat, item.lng], {
+                    radius: 10,
+                    fillColor: color,
+                    color: '#fff',
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                }).addTo(map);
+
+                marker.bindPopup(`
+                    <div style="color: #000; font-family: sans-serif;">
+                        <h4 style="font-weight: bold; margin: 0 0 4px 0;">${item.name}</h4>
+                        <p style="margin: 0; font-size: 12px;">Boş Yer: <b>${item.empty}</b> / ${item.capacity}</p>
+                        <p style="margin: 0; font-size: 12px;">Saatlik: ₺${item.price}</p>
+                        <button onclick="setMyCar('${item.name}')" style="margin-top: 6px; background: #0284c7; color: #fff; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">Buraya Park Et</button>
+                    </div>
+                `);
+
+                markers.push(marker);
+            });
+        }
+
+        // Yol Kenarı Polylines Çizimi
+        function renderStreetPolylines() {
+            const streetCoords = [
+                [[40.9855, 29.0265], [40.9835, 29.0245]],
+                [[41.0432, 29.0077], [41.0412, 29.0057]]
+            ];
+
+            streetCoords.forEach(coords => {
+                L.polyline(coords, { color: '#10b981', weight: 5, opacity: 0.7 }).addTo(map);
+            });
+        }
+
+        // Liste Renderleme
+        function renderList(data) {
+            const container = document.getElementById('parkingList');
+            container.innerHTML = '';
+
+            data.forEach(item => {
+                const badgeColor = item.empty > 20 ? 'text-emerald-400 bg-emerald-500/10' : 'text-amber-400 bg-amber-500/10';
+                container.innerHTML += `
+                    <div class="p-3 bg-slate-800/50 border border-slate-700/60 rounded-xl hover:border-sky-500/50 transition cursor-pointer" onclick="map.setView([${item.lat}, ${item.lng}], 15)">
+                        <div class="flex justify-between items-start">
+                            <h3 class="font-bold text-sm text-slate-200">${item.name}</h3>
+                            <span class="text-xs px-2 py-0.5 rounded-full font-semibold ${badgeColor}">${item.empty} Boş</span>
+                        </div>
+                        <div class="flex items-center gap-3 text-xs text-slate-400 mt-2">
+                            <span><i class="fa-solid fa-turkish-lira-sign"></i> ${item.price}/saat</span>
+                            ${item.ev ? '<span class="text-sky-400"><i class="fa-solid fa-bolt"></i> EV Var</span>' : ''}
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        // Arabam Nerede Takibi
+        function setMyCar(name) {
+            document.getElementById('carLocationName').innerText = name;
+            document.getElementById('myCarWidget').classList.remove('hidden');
+            alert(`${name} aracınızın park konumu olarak kaydedildi!`);
+        }
+
+        function clearMyCar() {
+            document.getElementById('myCarWidget').classList.add('hidden');
+        }
+
+        // Modal Yönetimi
+        function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+        function toggleCarPlay() { document.getElementById('carPlayOverlay').classList.toggle('hidden'); }
+
+        window.onload = initMap;
+    </script>
+</body>
+</html>
